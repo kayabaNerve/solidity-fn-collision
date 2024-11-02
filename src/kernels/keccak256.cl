@@ -43,9 +43,9 @@
 
 typedef union _nonce_t
 {
-  ulong   uint64_t;
-  uint    uint32_t[2];
-  uchar   uint8_t[8];
+  ulong   ulong;
+  uint    uint[2];
+  uchar   uchar[8];
 } nonce_t;
 
 #if PLATFORM == OPENCL_PLATFORM_AMD
@@ -337,13 +337,13 @@ __kernel void hashMessage(
   sponge[135] = S_135;
 
   // Write the nonce
-  uint32_t nonce = get_global_id(0);
+  uint nonce = get_global_id(0);
 #pragma unroll
   for (int i = 0; i < 6; ++i) {
     size_t shift = 24 - ((i + 1) * 4);
-    uint32_t nibble = (nonce >> shift) & 0xf;
-    uint8_t dec_encoding = (uint8_t) (nibble < 10);
-    uint8_t alpha_encoding = 1 - dec_encoding;
+    uint nibble = (nonce >> shift) & 0xf;
+    uchar dec_encoding = (uchar) (nibble < 10);
+    uchar alpha_encoding = 1 - dec_encoding;
     sponge[NONCE_START_POS + i] = (dec_encoding * ('0' + nibble)) + (alpha_encoding * ('A' + (nibble - 10)));
   }
 
@@ -361,6 +361,6 @@ __kernel void hashMessage(
     // we just need to write one solution for all practical purposes,
     // since the chance of multiple solutions appearing
     // in a single workset is extremely low.
-    solutions[0] = (uint64_t) nonce;
+    solutions[0] = (ulong) nonce;
   }
 }
