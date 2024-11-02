@@ -103,6 +103,8 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
     // build the kernel and define the type of each buffer
     let kern = ocl_pq
         .kernel_builder("hashMessage")
+        .global_work_size(2u32.pow(24))
+        .global_work_offset(0)
         .arg_named("solutions", None::<&Buffer<u64>>)
         .build()?;
 
@@ -117,7 +119,7 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
 
     for &solution in &solutions {
       // 1/2**32 chance of a false negative
-      if solutions[0] != 0 {
+      if solutions[0] == 0 {
           continue;
       }
 
