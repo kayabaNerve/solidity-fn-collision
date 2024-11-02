@@ -188,7 +188,7 @@ __kernel void hashMessage(
   ulong spongeBuffer[25];
 
 #define sponge ((uchar *) spongeBuffer)
-#define digest (sponge + 12)
+#define digest sponge
 
   sponge[0] = S_0;
   sponge[1] = S_1;

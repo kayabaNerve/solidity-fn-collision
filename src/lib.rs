@@ -140,6 +140,7 @@ fn mk_kernel_src(config: &Config, nonce: u8) -> String {
     sponge.extend("000000".as_bytes());
     sponge.extend(config.function_end.as_bytes());
     sponge.push(1); // Pad start
+    assert!(sponge.len() < 136, "function name was too long");
     while sponge.len() < 136 {
       sponge.push(0);
     }
