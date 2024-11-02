@@ -14,172 +14,313 @@
    limitations under the License.
 */
 
-/**
-* Based on the following, with small tweaks and optimizations:
+/** libkeccak-tiny
 *
-* https://github.com/lwYeo/SoliditySHA3Miner/blob/master/SoliditySHA3Miner/
-*   Miner/Kernels/OpenCL/sha3KingKernel.cl
+* A single-file implementation of SHA-3 and SHAKE.
 *
-* Originally modified for openCL processing by lwYeo
+* Modified for openCL processing by lwYeo
+* Date: August, 2018
 *
-* Original implementor: David Leon Gil
-*
-* License: CC0, attribution kindly requested. Blame taken too, but not
-* liability.
+* Implementor: David Leon Gil
+* License: CC0, attribution kindly requested. Blame taken too,
+* but not liability.
 */
 
-/******** Keccak-f[1600] (for finding efficient Ethereum addresses) ********/
+/*
+  Copied from https://github.com/lwYeo/SoliditySHA3Miner/blob/9737b16d3c3565702292c13b22cf06dd9b8f99ae/SoliditySHA3Miner/Miner/Kernels/OpenCL/sha3KingKernel.cl,
+  with irrelevant definitions removed, yet with no present chunks altered, by kayabaNerve
+*/
 
-#define OPENCL_PLATFORM_UNKNOWN 0
-#define OPENCL_PLATFORM_AMD   2
+/******** The Keccak-f[1600] permutation ********/
+
+#define OPENCL_PLATFORM_UNKNOWN	0
+#define OPENCL_PLATFORM_AMD		2
 
 #ifndef PLATFORM
-# define PLATFORM       OPENCL_PLATFORM_UNKNOWN
+#	define PLATFORM				OPENCL_PLATFORM_UNKNOWN
 #endif
 
 #if PLATFORM == OPENCL_PLATFORM_AMD
-# pragma OPENCL EXTENSION   cl_amd_media_ops : enable
+#	pragma OPENCL EXTENSION		cl_amd_media_ops : enable
 #endif
 
-#if PLATFORM == OPENCL_PLATFORM_AMD
 static inline ulong rol(const ulong x, const uint s)
 {
-  uint2 output;
-  uint2 x2 = as_uint2(x);
+#if PLATFORM == OPENCL_PLATFORM_AMD
 
-  output = (s > 32u) ? amd_bitalign((x2).yx, (x2).xy, 64u - s) : amd_bitalign((x2).xy, (x2).yx, 32u - s);
-  return as_ulong(output);
-}
+	uint2 output;
+	uint2 x2 = as_uint2(x);
+
+	output = (s > 32u) ? amd_bitalign((x2).yx, (x2).xy, 64u - s) : amd_bitalign((x2).xy, (x2).yx, 32u - s);
+	return as_ulong(output);
+
 #else
-#define rol(x, s) (((x) << s) | ((x) >> (64u - s)))
+
+	return (((x) << s) | ((x) >> (64u - s)));
+
 #endif
-
-#define rol1(x) rol(x, 1u)
-
-#define theta_(m, n, o) \
-t = b[m] ^ rol1(b[n]); \
-a[o + 0] ^= t; \
-a[o + 5] ^= t; \
-a[o + 10] ^= t; \
-a[o + 15] ^= t; \
-a[o + 20] ^= t; \
-
-#define theta() \
-b[0] = a[0] ^ a[5] ^ a[10] ^ a[15] ^ a[20]; \
-b[1] = a[1] ^ a[6] ^ a[11] ^ a[16] ^ a[21]; \
-b[2] = a[2] ^ a[7] ^ a[12] ^ a[17] ^ a[22]; \
-b[3] = a[3] ^ a[8] ^ a[13] ^ a[18] ^ a[23]; \
-b[4] = a[4] ^ a[9] ^ a[14] ^ a[19] ^ a[24]; \
-theta_(4, 1, 0); \
-theta_(0, 2, 1); \
-theta_(1, 3, 2); \
-theta_(2, 4, 3); \
-theta_(3, 0, 4);
-
-#define rhoPi_(m, n) t = b[0]; b[0] = a[m]; a[m] = rol(t, n); \
-
-#define rhoPi() t = a[1]; b[0] = a[10]; a[10] = rol1(t); \
-rhoPi_(7, 3); \
-rhoPi_(11, 6); \
-rhoPi_(17, 10); \
-rhoPi_(18, 15); \
-rhoPi_(3, 21); \
-rhoPi_(5, 28); \
-rhoPi_(16, 36); \
-rhoPi_(8, 45); \
-rhoPi_(21, 55); \
-rhoPi_(24, 2); \
-rhoPi_(4, 14); \
-rhoPi_(15, 27); \
-rhoPi_(23, 41); \
-rhoPi_(19, 56); \
-rhoPi_(13, 8); \
-rhoPi_(12, 25); \
-rhoPi_(2, 43); \
-rhoPi_(20, 62); \
-rhoPi_(14, 18); \
-rhoPi_(22, 39); \
-rhoPi_(9, 61); \
-rhoPi_(6, 20); \
-rhoPi_(1, 44);
-
-#define chi_(n) \
-b[0] = a[n + 0]; \
-b[1] = a[n + 1]; \
-b[2] = a[n + 2]; \
-b[3] = a[n + 3]; \
-b[4] = a[n + 4]; \
-a[n + 0] = b[0] ^ ((~b[1]) & b[2]); \
-a[n + 1] = b[1] ^ ((~b[2]) & b[3]); \
-a[n + 2] = b[2] ^ ((~b[3]) & b[4]); \
-a[n + 3] = b[3] ^ ((~b[4]) & b[0]); \
-a[n + 4] = b[4] ^ ((~b[0]) & b[1]);
-
-#define chi() chi_(0); chi_(5); chi_(10); chi_(15); chi_(20);
-
-#define iota(x) a[0] ^= x;
-
-#define iteration(x) theta(); rhoPi(); chi(); iota(x);
-
-static inline void keccakf(ulong *a)
-{
-  ulong b[5];
-  ulong t;
-
-  iteration(0x0000000000000001); // iteration 1
-  iteration(0x0000000000008082); // iteration 2
-  iteration(0x800000000000808a); // iteration 3
-  iteration(0x8000000080008000); // iteration 4
-  iteration(0x000000000000808b); // iteration 5
-  iteration(0x0000000080000001); // iteration 6
-  iteration(0x8000000080008081); // iteration 7
-  iteration(0x8000000000008009); // iteration 8
-  iteration(0x000000000000008a); // iteration 9
-  iteration(0x0000000000000088); // iteration 10
-  iteration(0x0000000080008009); // iteration 11
-  iteration(0x000000008000000a); // iteration 12
-  iteration(0x000000008000808b); // iteration 13
-  iteration(0x800000000000008b); // iteration 14
-  iteration(0x8000000000008089); // iteration 15
-  iteration(0x8000000000008003); // iteration 16
-  iteration(0x8000000000008002); // iteration 17
-  iteration(0x8000000000000080); // iteration 18
-  iteration(0x000000000000800a); // iteration 19
-  iteration(0x800000008000000a); // iteration 20
-  iteration(0x8000000080008081); // iteration 21
-  iteration(0x8000000000008080); // iteration 22
-  iteration(0x0000000080000001); // iteration 23
-
-  // iteration 24 (partial)
-
-#define o ((uint *)(a))
-  // Theta (partial)
-  b[0] = a[0] ^ a[5] ^ a[10] ^ a[15] ^ a[20];
-  b[1] = a[1] ^ a[6] ^ a[11] ^ a[16] ^ a[21];
-  b[2] = a[2] ^ a[7] ^ a[12] ^ a[17] ^ a[22];
-  b[3] = a[3] ^ a[8] ^ a[13] ^ a[18] ^ a[23];
-  b[4] = a[4] ^ a[9] ^ a[14] ^ a[19] ^ a[24];
-
-  a[0] ^= b[4] ^ rol1(b[1]);
-  a[6] ^= b[0] ^ rol1(b[2]);
-  a[12] ^= b[1] ^ rol1(b[3]);
-  a[18] ^= b[2] ^ rol1(b[4]);
-  a[24] ^= b[3] ^ rol1(b[0]);
-
-  // Rho Pi (partial)
-  o[3] = (o[13] >> 20) | (o[12] << 12);
-  a[2] = rol(a[12], 43);
-  a[3] = rol(a[18], 21);
-  a[4] = rol(a[24], 14);
-
-  // Chi (partial)
-  o[3] ^= ((~o[5]) & o[7]);
-  o[4] ^= ((~o[6]) & o[8]);
-  o[5] ^= ((~o[7]) & o[9]);
-  o[6] ^= ((~o[8]) & o[0]);
-  o[7] ^= ((~o[9]) & o[1]);
-#undef o
 }
+
+/*** Constants. ***/
+__constant static ulong const Keccak_f1600_RC[24] =
+{
+	0x0000000000000001, 0x0000000000008082, 0x800000000000808a,
+	0x8000000080008000, 0x000000000000808b, 0x0000000080000001,
+	0x8000000080008081, 0x8000000000008009, 0x000000000000008a,
+	0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
+	0x000000008000808b, 0x800000000000008b, 0x8000000000008089,
+	0x8000000000008003, 0x8000000000008002, 0x8000000000000080,
+	0x000000000000800a, 0x800000008000000a, 0x8000000080008081,
+	0x8000000000008080, 0x0000000080000001, 0x8000000080008008
+};
+
+__constant static const uchar rho[24] =
+{
+	1, 3, 6, 10, 15, 21,
+	28, 36, 45, 55, 2, 14,
+	27, 41, 56, 8, 25, 43,
+	62, 18, 39, 61, 20, 44
+};
+
+__constant static const uchar pi[24] =
+{
+	10, 7, 11, 17, 18, 3,
+	5, 16, 8, 21, 24, 4,
+	15, 23, 19, 13, 12, 2,
+	20, 14, 22, 9, 6, 1
+};
+
+/*** This is the unrolled version of the original macro ***/
+static inline void keccakf(void *state)
+{
+	ulong *a = (ulong *)state;
+	ulong b[5] = { 0, 0, 0, 0, 0 };
+	ulong t;
+
+#	pragma unroll
+	for (uint i = 0; i < 24u; ++i)
+	{
+		// Theta
+		b[0] = a[0] ^ a[5] ^ a[10] ^ a[15] ^ a[20];
+		b[1] = a[1] ^ a[6] ^ a[11] ^ a[16] ^ a[21];
+		b[2] = a[2] ^ a[7] ^ a[12] ^ a[17] ^ a[22];
+		b[3] = a[3] ^ a[8] ^ a[13] ^ a[18] ^ a[23];
+		b[4] = a[4] ^ a[9] ^ a[14] ^ a[19] ^ a[24];
+
+		a[0] ^= b[4] ^ rol(b[1], 1);
+		a[5] ^= b[4] ^ rol(b[1], 1);
+		a[10] ^= b[4] ^ rol(b[1], 1);
+		a[15] ^= b[4] ^ rol(b[1], 1);
+		a[20] ^= b[4] ^ rol(b[1], 1);
+
+		a[1] ^= b[0] ^ rol(b[2], 1);
+		a[6] ^= b[0] ^ rol(b[2], 1);
+		a[11] ^= b[0] ^ rol(b[2], 1);
+		a[16] ^= b[0] ^ rol(b[2], 1);
+		a[21] ^= b[0] ^ rol(b[2], 1);
+
+		a[2] ^= b[1] ^ rol(b[3], 1);
+		a[7] ^= b[1] ^ rol(b[3], 1);
+		a[12] ^= b[1] ^ rol(b[3], 1);
+		a[17] ^= b[1] ^ rol(b[3], 1);
+		a[22] ^= b[1] ^ rol(b[3], 1);
+
+		a[3] ^= b[2] ^ rol(b[4], 1);
+		a[8] ^= b[2] ^ rol(b[4], 1);
+		a[13] ^= b[2] ^ rol(b[4], 1);
+		a[18] ^= b[2] ^ rol(b[4], 1);
+		a[23] ^= b[2] ^ rol(b[4], 1);
+
+		a[4] ^= b[3] ^ rol(b[0], 1);
+		a[9] ^= b[3] ^ rol(b[0], 1);
+		a[14] ^= b[3] ^ rol(b[0], 1);
+		a[19] ^= b[3] ^ rol(b[0], 1);
+		a[24] ^= b[3] ^ rol(b[0], 1);
+
+		// Rho Pi
+		t = a[1];
+		b[0] = a[pi[0]];
+		a[pi[0]] = rol(t, rho[0]);
+
+		t = b[0];
+		b[0] = a[pi[1]];
+		a[pi[1]] = rol(t, rho[1]);
+
+		t = b[0];
+		b[0] = a[pi[2]];
+		a[pi[2]] = rol(t, rho[2]);
+
+		t = b[0];
+		b[0] = a[pi[3]];
+		a[pi[3]] = rol(t, rho[3]);
+
+		t = b[0];
+		b[0] = a[pi[4]];
+		a[pi[4]] = rol(t, rho[4]);
+
+		t = b[0];
+		b[0] = a[pi[5]];
+		a[pi[5]] = rol(t, rho[5]);
+
+		t = b[0];
+		b[0] = a[pi[6]];
+		a[pi[6]] = rol(t, rho[6]);
+
+		t = b[0];
+		b[0] = a[pi[7]];
+		a[pi[7]] = rol(t, rho[7]);
+
+		t = b[0];
+		b[0] = a[pi[8]];
+		a[pi[8]] = rol(t, rho[8]);
+
+		t = b[0];
+		b[0] = a[pi[9]];
+		a[pi[9]] = rol(t, rho[9]);
+
+		t = b[0];
+		b[0] = a[pi[10]];
+		a[pi[10]] = rol(t, rho[10]);
+
+		t = b[0];
+		b[0] = a[pi[11]];
+		a[pi[11]] = rol(t, rho[11]);
+
+		t = b[0];
+		b[0] = a[pi[12]];
+		a[pi[12]] = rol(t, rho[12]);
+
+		t = b[0];
+		b[0] = a[pi[13]];
+		a[pi[13]] = rol(t, rho[13]);
+
+		t = b[0];
+		b[0] = a[pi[14]];
+		a[pi[14]] = rol(t, rho[14]);
+
+		t = b[0];
+		b[0] = a[pi[15]];
+		a[pi[15]] = rol(t, rho[15]);
+
+		t = b[0];
+		b[0] = a[pi[16]];
+		a[pi[16]] = rol(t, rho[16]);
+
+		t = b[0];
+		b[0] = a[pi[17]];
+		a[pi[17]] = rol(t, rho[17]);
+
+		t = b[0];
+		b[0] = a[pi[18]];
+		a[pi[18]] = rol(t, rho[18]);
+
+		t = b[0];
+		b[0] = a[pi[19]];
+		a[pi[19]] = rol(t, rho[19]);
+
+		t = b[0];
+		b[0] = a[pi[20]];
+		a[pi[20]] = rol(t, rho[20]);
+
+		t = b[0];
+		b[0] = a[pi[21]];
+		a[pi[21]] = rol(t, rho[21]);
+
+		t = b[0];
+		b[0] = a[pi[22]];
+		a[pi[22]] = rol(t, rho[22]);
+
+		t = b[0];
+		b[0] = a[pi[23]];
+		a[pi[23]] = rol(t, rho[23]);
+
+		// Chi
+		b[0] = a[0];
+		b[1] = a[1];
+		b[2] = a[2];
+		b[3] = a[3];
+		b[4] = a[4];
+		a[0] = b[0] ^ ((~b[1]) & b[2]);
+		a[1] = b[1] ^ ((~b[2]) & b[3]);
+		a[2] = b[2] ^ ((~b[3]) & b[4]);
+		a[3] = b[3] ^ ((~b[4]) & b[0]);
+		a[4] = b[4] ^ ((~b[0]) & b[1]);
+
+		b[0] = a[5];
+		b[1] = a[6];
+		b[2] = a[7];
+		b[3] = a[8];
+		b[4] = a[9];
+		a[5] = b[0] ^ ((~b[1]) & b[2]);
+		a[6] = b[1] ^ ((~b[2]) & b[3]);
+		a[7] = b[2] ^ ((~b[3]) & b[4]);
+		a[8] = b[3] ^ ((~b[4]) & b[0]);
+		a[9] = b[4] ^ ((~b[0]) & b[1]);
+
+		b[0] = a[10];
+		b[1] = a[11];
+		b[2] = a[12];
+		b[3] = a[13];
+		b[4] = a[14];
+		a[10] = b[0] ^ ((~b[1]) & b[2]);
+		a[11] = b[1] ^ ((~b[2]) & b[3]);
+		a[12] = b[2] ^ ((~b[3]) & b[4]);
+		a[13] = b[3] ^ ((~b[4]) & b[0]);
+		a[14] = b[4] ^ ((~b[0]) & b[1]);
+
+		b[0] = a[15];
+		b[1] = a[16];
+		b[2] = a[17];
+		b[3] = a[18];
+		b[4] = a[19];
+		a[15] = b[0] ^ ((~b[1]) & b[2]);
+		a[16] = b[1] ^ ((~b[2]) & b[3]);
+		a[17] = b[2] ^ ((~b[3]) & b[4]);
+		a[18] = b[3] ^ ((~b[4]) & b[0]);
+		a[19] = b[4] ^ ((~b[0]) & b[1]);
+
+		b[0] = a[20];
+		b[1] = a[21];
+		b[2] = a[22];
+		b[3] = a[23];
+		b[4] = a[24];
+		a[20] = b[0] ^ ((~b[1]) & b[2]);
+		a[21] = b[1] ^ ((~b[2]) & b[3]);
+		a[22] = b[2] ^ ((~b[3]) & b[4]);
+		a[23] = b[3] ^ ((~b[4]) & b[0]);
+		a[24] = b[4] ^ ((~b[0]) & b[1]);
+
+		// Iota
+		a[0] ^= Keccak_f1600_RC[i];
+	}
+}
+
+// The following was forked by kayabaNerve from 0age's work
+
+/*
+MIT License
+
+Copyright (c) 2019 0age
+Copyright (c) 2024 Luke Parker
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 __kernel void hashMessage(
   __global volatile ulong *restrict solutions
