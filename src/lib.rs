@@ -17,21 +17,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Height};
 use tiny_keccak::{Hasher, Keccak};
 
-const WORK_FACTOR: u128 = (WORK_SIZE as u128) / 1_000_000;
-const CONTROL_CHARACTER: u8 = 0xff;
-const MAX_INCREMENTER: u64 = 0xffffffffffff;
-
 static KERNEL_SRC: &str = include_str!("./kernels/keccak256.cl");
 
-/// Requires three hex-encoded arguments: the address of the contract that will
-/// be calling CREATE2, the address of the caller of said contract *(assuming
-/// the contract calling CREATE2 has frontrunning protection in place - if not
-/// applicable to your use-case you can set it to the null address)*, and the
-/// keccak-256 hash of the bytecode that is provided by the contract calling
-/// CREATE2 that will be used to initialize the new contract. An additional set
-/// of three optional values may be provided: a device to target for OpenCL GPU
-/// search, a threshold for leading zeroes to search for, and a threshold for
-/// total zeroes to search for.
+#[derive(Clone)]
 pub struct Config {
     pub target: [u8; 4],
     pub function_start: String,
@@ -52,23 +40,23 @@ impl Config {
         let Some(function_string) = args.next() else {
             return Err("didn't get a function argument");
         };
-        let function_string = function_string.split("00000000");
-        let function_start = function_string.next().unwrap();
+        let mut function_string = function_string.split("00000000");
+        let function_start = function_string.next().unwrap().to_string();
         let Some(function_end) = function_string.next() else {
           return Err("function didn't contain 00000000 in its name, before its arguments");
-        }
+        };
         if function_string.next().is_some() {
           return Err("function contained 00000000 multiple times");
         }
 
-        let gpu_device_string = match args.next() else {
+        let Some(gpu_device_string) = args.next() else {
             return Err("didn't get a GPU argument")
         };
 
         // convert main arguments from hex string to vector of bytes
         let Ok(target_vec) = hex::decode(target_string) else {
             return Err("could not decode target argument");
-        };s
+        };
 
         // convert from vector to fixed array
         let Ok(target) = target_vec.try_into() else {
@@ -83,7 +71,8 @@ impl Config {
         Ok(Self {
             target,
             function_start,
-            function_end
+            function_end: function_end.to_string(),
+            gpu_device,
         })
     }
 }
@@ -113,7 +102,7 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
     let queue = Queue::new(&context, device, None)?;
 
     // set up the "proqueue" (or amalgamation of various elements) to use
-    let ocl_pq = ProQue::new(context, queue, program, Some(2.pow(24)));
+    let ocl_pq = ProQue::new(context, queue, program, Some(2u32.pow(24)));
 
     // determine the start time
     let start_time: f64 = SystemTime::now()
@@ -133,50 +122,49 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
         .copy_host_slice(&solutions)
         .build()?;
 
-        // build the kernel and define the type of each buffer
-        let kern = ocl_pq
-            .kernel_builder("hashMessage")
-            .arg_named("solutions", None::<&Buffer<u64>>)
-            .build()?;
+    // build the kernel and define the type of each buffer
+    let kern = ocl_pq
+        .kernel_builder("hashMessage")
+        .arg_named("solutions", None::<&Buffer<u64>>)
+        .build()?;
 
-        // set each buffer
-        kern.set_arg("solutions", &solutions_buffer)?;
+    // set each buffer
+    kern.set_arg("solutions", &solutions_buffer)?;
 
-        // enqueue the kernel
-        unsafe { kern.enq()? };
+    // enqueue the kernel
+    unsafe { kern.enq()? };
 
-        let mut now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let current_time = now.as_secs() as f64;
+    let mut now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let current_time = now.as_secs() as f64;
 
-        // record the start time of the work
-        let work_start_time_millis = now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000;
+    // record the start time of the work
+    let work_start_time_millis = now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000;
 
-        // sleep for 98% of the previous work duration to conserve CPU
-        if work_duration_millis != 0 {
-            std::thread::sleep(std::time::Duration::from_millis(
-                work_duration_millis * 980 / 1000,
-            ));
-        }
-
-        // read the solutions from the device
-        solutions_buffer.read(&mut solutions).enq()?;
-
-        // record the end time of the work and compute how long the work took
-        now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        work_duration_millis = (now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000)
-            - work_start_time_millis;
-
-        // if at least one solution is found, end the loop
-        // 1/2**32 chance of a false negative
-        if solutions[0] != 0 {
-            break;
-        }
+    // sleep for 98% of the previous work duration to conserve CPU
+    if work_duration_millis != 0 {
+        std::thread::sleep(std::time::Duration::from_millis(
+            work_duration_millis * 980 / 1000,
+        ));
     }
 
-    // iterate over each solution, first converting to a fixed array
+    // read the solutions from the device
+    solutions_buffer.read(&mut solutions).enq()?;
+
+    // record the end time of the work and compute how long the work took
+    now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    work_duration_millis = (now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000)
+        - work_start_time_millis;
+
     for &solution in &solutions {
-        dbg!(solution);
+      // 1/2**32 chance of a false negative
+      if solutions[0] != 0 {
+          continue;
+      }
+
+      dbg!(solution);
     }
+
+    Ok(())
 }
 
 /// Creates the OpenCL kernel source code by populating the template with the
@@ -188,8 +176,8 @@ fn mk_kernel_src(config: &Config, nonce: u8) -> String {
     sponge.extend(config.function_start.as_bytes());
     sponge.extend(hex::encode(&[nonce]).as_bytes());
     let nonce_start_pos = sponge.len();
-    sponge.extend("000000");
-    sponge.extend(config.function_end.as_bytes().len());
+    sponge.extend("000000".as_bytes());
+    sponge.extend(config.function_end.as_bytes());
     sponge.push(1); // Pad start
     while sponge.len() < 135 {
       sponge.push(0);

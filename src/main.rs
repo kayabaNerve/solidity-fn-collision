@@ -9,7 +9,7 @@ fn main() {
     });
 
     for i in 0 .. u8::MAX {
-      if let Err(e) = create2crunch::gpu(config, i) {
+      if let Err(e) = create2crunch::gpu(config.clone(), i) {
         eprintln!("GPU application error: {e}");
         process::exit(1);
       }
