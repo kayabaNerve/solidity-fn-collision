@@ -41,13 +41,6 @@
 # pragma OPENCL EXTENSION   cl_amd_media_ops : enable
 #endif
 
-typedef union _nonce_t
-{
-  ulong   ulong;
-  uint    uint[2];
-  uchar   uchar[8];
-} nonce_t;
-
 #if PLATFORM == OPENCL_PLATFORM_AMD
 static inline ulong rol(const ulong x, const uint s)
 {
@@ -196,8 +189,6 @@ __kernel void hashMessage(
 
 #define sponge ((uchar *) spongeBuffer)
 #define digest (sponge + 12)
-
-  nonce_t nonce;
 
   sponge[0] = S_0;
   sponge[1] = S_1;
