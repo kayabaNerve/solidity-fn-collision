@@ -134,7 +134,7 @@ fn mk_kernel_src(config: &Config, nonce: u8) -> String {
 
     let mut sponge = vec![];
     sponge.extend(config.function_start.as_bytes());
-    sponge.extend(hex::encode(&[nonce]).as_bytes());
+    sponge.extend(hex::encode(&[nonce]).to_uppercase().as_bytes());
     let nonce_start_pos = sponge.len();
     sponge.extend("000000".as_bytes());
     sponge.extend(config.function_end.as_bytes());

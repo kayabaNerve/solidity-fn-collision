@@ -379,7 +379,7 @@ __kernel void hashMessage(
     uint32_t nibble = (nonce >> shift) & 0xf;
     uint8_t dec_encoding = (uint8_t) (nibble < 10);
     uint8_t alpha_encoding = 1 - dec_encoding;
-    sponge[NONCE_START_POS + i] = (dec_encoding * ('0' + nibble)) + (alpha_encoding * ('a' + (nibble - 10)));
+    sponge[NONCE_START_POS + i] = (dec_encoding * ('0' + nibble)) + (alpha_encoding * ('A' + (nibble - 10)));
   }
 
   // fill remaining sponge state with zeroes
