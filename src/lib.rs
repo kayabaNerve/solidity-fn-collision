@@ -139,7 +139,7 @@ fn mk_kernel_src(config: &Config, nonce: u8) -> String {
     sponge.extend("000000".as_bytes());
     sponge.extend(config.function_end.as_bytes());
     sponge.push(1); // Pad start
-    while sponge.len() < 135 {
+    while sponge.len() < 136 {
       sponge.push(0);
     }
     sponge[135] = 0x80; // Pad end
