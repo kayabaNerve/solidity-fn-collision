@@ -1,21 +1,8 @@
 #![warn(unused_crate_dependencies, unreachable_pub)]
 #![deny(unused_must_use, rust_2018_idioms)]
 
-use alloy_primitives::{hex, Address, FixedBytes};
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
-use console::Term;
-use fs4::FileExt;
 use ocl::{Buffer, Context, Device, MemFlags, Platform, ProQue, Program, Queue};
-use rand::{thread_rng, Rng};
-use rayon::prelude::*;
-use separator::Separatable;
-use std::error::Error;
 use std::fmt::Write as _;
-use std::fs::{File, OpenOptions};
-use std::io::prelude::*;
-use std::time::{SystemTime, UNIX_EPOCH};
-use terminal_size::{terminal_size, Height};
-use tiny_keccak::{Hasher, Keccak};
 
 static KERNEL_SRC: &str = include_str!("./kernels/keccak256.cl");
 
@@ -104,15 +91,6 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
     // set up the "proqueue" (or amalgamation of various elements) to use
     let ocl_pq = ProQue::new(context, queue, program, Some(2u32.pow(24)));
 
-    // determine the start time
-    let start_time: f64 = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
-
-    // the last work duration in milliseconds
-    let mut work_duration_millis: u64 = 0;
-
     // establish a buffer for nonces that result in desired addresses
     let mut solutions: Vec<u64> = vec![0; 1];
     let solutions_buffer = Buffer::builder()
@@ -134,26 +112,8 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
     // enqueue the kernel
     unsafe { kern.enq()? };
 
-    let mut now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    let current_time = now.as_secs() as f64;
-
-    // record the start time of the work
-    let work_start_time_millis = now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000;
-
-    // sleep for 98% of the previous work duration to conserve CPU
-    if work_duration_millis != 0 {
-        std::thread::sleep(std::time::Duration::from_millis(
-            work_duration_millis * 980 / 1000,
-        ));
-    }
-
     // read the solutions from the device
     solutions_buffer.read(&mut solutions).enq()?;
-
-    // record the end time of the work and compute how long the work took
-    now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    work_duration_millis = (now.as_secs() * 1000 + now.subsec_nanos() as u64 / 1000000)
-        - work_start_time_millis;
 
     for &solution in &solutions {
       // 1/2**32 chance of a false negative
