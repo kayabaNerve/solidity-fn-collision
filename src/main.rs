@@ -8,13 +8,10 @@ fn main() {
         process::exit(1);
     });
 
-    if config.gpu_device == 255 {
-        if let Err(e) = create2crunch::cpu(config) {
-            eprintln!("CPU application error: {e}");
-            process::exit(1);
-        }
-    } else if let Err(e) = create2crunch::gpu(config) {
+    for i in 0 .. u8::MAX {
+      if let Err(e) = create2crunch::gpu(config, i) {
         eprintln!("GPU application error: {e}");
         process::exit(1);
-    }
+      }
+  }
 }

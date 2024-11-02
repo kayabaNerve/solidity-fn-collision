@@ -224,8 +224,6 @@ static inline bool hasLeading(uchar const *d)
 #endif
 
 __kernel void hashMessage(
-  __constant uchar const *d_message,
-  __constant uint const *d_nonce,
   __global volatile ulong *restrict solutions
 ) {
 
@@ -236,9 +234,7 @@ __kernel void hashMessage(
 
   nonce_t nonce;
 
-  // write the control character
-  sponge[0] = 0xffu;
-
+  sponge[0] = S_0;
   sponge[1] = S_1;
   sponge[2] = S_2;
   sponge[3] = S_3;
@@ -279,26 +275,18 @@ __kernel void hashMessage(
   sponge[38] = S_38;
   sponge[39] = S_39;
   sponge[40] = S_40;
-
-  sponge[41] = d_message[0];
-  sponge[42] = d_message[1];
-  sponge[43] = d_message[2];
-  sponge[44] = d_message[3];
-
-  // populate the nonce
-  nonce.uint32_t[0] = get_global_id(0);
-  nonce.uint32_t[1] = d_nonce[0];
-
-  // populate the body of the message with the nonce
-  sponge[45] = nonce.uint8_t[0];
-  sponge[46] = nonce.uint8_t[1];
-  sponge[47] = nonce.uint8_t[2];
-  sponge[48] = nonce.uint8_t[3];
-  sponge[49] = nonce.uint8_t[4];
-  sponge[50] = nonce.uint8_t[5];
-  sponge[51] = nonce.uint8_t[6];
-  sponge[52] = nonce.uint8_t[7];
-
+  sponge[41] = S_41;
+  sponge[42] = S_42;
+  sponge[43] = S_43;
+  sponge[44] = S_44;
+  sponge[45] = S_45;
+  sponge[46] = S_46;
+  sponge[47] = S_47;
+  sponge[48] = S_48;
+  sponge[49] = S_49;
+  sponge[50] = S_50;
+  sponge[51] = S_51;
+  sponge[52] = S_52;
   sponge[53] = S_53;
   sponge[54] = S_54;
   sponge[55] = S_55;
@@ -331,17 +319,68 @@ __kernel void hashMessage(
   sponge[82] = S_82;
   sponge[83] = S_83;
   sponge[84] = S_84;
+  sponge[85] = S_85;
+  sponge[86] = S_86;
+  sponge[87] = S_87;
+  sponge[88] = S_88;
+  sponge[89] = S_89;
+  sponge[90] = S_90;
+  sponge[91] = S_91;
+  sponge[92] = S_92;
+  sponge[93] = S_93;
+  sponge[94] = S_94;
+  sponge[95] = S_95;
+  sponge[96] = S_96;
+  sponge[97] = S_97;
+  sponge[98] = S_98;
+  sponge[99] = S_99;
+  sponge[100] = S_100;
+  sponge[101] = S_101;
+  sponge[102] = S_102;
+  sponge[103] = S_103;
+  sponge[104] = S_104;
+  sponge[105] = S_105;
+  sponge[106] = S_106;
+  sponge[107] = S_107;
+  sponge[108] = S_108;
+  sponge[109] = S_109;
+  sponge[110] = S_110;
+  sponge[111] = S_111;
+  sponge[112] = S_112;
+  sponge[113] = S_113;
+  sponge[114] = S_114;
+  sponge[115] = S_115;
+  sponge[116] = S_116;
+  sponge[117] = S_117;
+  sponge[118] = S_118;
+  sponge[119] = S_119;
+  sponge[120] = S_120;
+  sponge[121] = S_121;
+  sponge[122] = S_122;
+  sponge[123] = S_123;
+  sponge[124] = S_124;
+  sponge[125] = S_125;
+  sponge[126] = S_126;
+  sponge[127] = S_127;
+  sponge[128] = S_128;
+  sponge[129] = S_129;
+  sponge[130] = S_130;
+  sponge[131] = S_131;
+  sponge[132] = S_132;
+  sponge[133] = S_133;
+  sponge[134] = S_134;
+  sponge[135] = S_135;
 
-  // begin padding based on message length
-  sponge[85] = 0x01u;
-
-  // fill padding
+  // Write the nonce
+  uint32_t nonce = get_global_id(0);
 #pragma unroll
-  for (int i = 86; i < 135; ++i)
-    sponge[i] = 0;
-
-  // end padding
-  sponge[135] = 0x80u;
+  for (int i = 0; i < 6; ++i) {
+    size_t shift = 24 - ((i + 1) * 4);
+    uint32_t nibble = (nonce >> shift) & 0xf;
+    uint8_t dec_encoding = (uint8_t) (nibble < 10);
+    uint8_t alpha_encoding = 1 - dec_encoding;
+    sponge[NONCE_START_POS + i] = (dec_encoding * ('0' + nibble)) + (alpha_encoding * ('a' + (nibble - 10)));
+  }
 
   // fill remaining sponge state with zeroes
 #pragma unroll
@@ -352,16 +391,11 @@ __kernel void hashMessage(
   keccakf(spongeBuffer);
 
   // determine if the address meets the constraints
-  if (
-    hasLeading(digest) 
-#if TOTAL_ZEROES <= 20
-    || hasTotal(digest)
-#endif
-  ) {
-    // To be honest, if we are using OpenCL, 
+  if ((digest[0] == T_0) && (digest[1] == T_1) && (digest[2] == T_2) && (digest[3] == T_3)) {
+    // To be honest, if we are using OpenCL,
     // we just need to write one solution for all practical purposes,
     // since the chance of multiple solutions appearing
     // in a single workset is extremely low.
-    solutions[0] = nonce.uint64_t;
+    solutions[0] = (uint64_t) nonce;
   }
 }
