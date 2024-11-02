@@ -93,7 +93,7 @@ fn mk_kernel_src(config: &Config, nonce: u8) -> String {
     src
 }
 
-pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
+pub fn gpu(config: Config, nonce: u8) -> ocl::Result<bool> {
     println!("Starting work on {nonce}");
 
     // set up a platform to use
@@ -155,12 +155,14 @@ pub fn gpu(config: Config, nonce: u8) -> ocl::Result<()> {
             "Found collision: {}{}{}{}",
             config.function_start,
             hex::encode(&[nonce]).to_uppercase(),
-            hex::encode(&solution.to_le_bytes()[5..]).to_uppercase(),
+            hex::encode(&solution.to_be_bytes()[5..]).to_uppercase(),
             config.function_end
         );
+
+        return Ok(true);
     }
 
-    Ok(())
+    Ok(false)
 }
 
 fn main() {
@@ -170,9 +172,13 @@ fn main() {
     });
 
     for i in 0..u8::MAX {
-        if let Err(e) = gpu(config.clone(), i) {
-            eprintln!("GPU application error: {e}");
-            process::exit(1);
+        match gpu(config.clone(), i) {
+            Ok(true) => return,
+            Ok(false) => {},
+            Err(e) => {
+                eprintln!("GPU application error: {e}");
+                process::exit(1);
+            }
         }
     }
 }
